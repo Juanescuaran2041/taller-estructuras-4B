@@ -1,0 +1,272 @@
+import { Equipment, TypeEquipment, StatusEquipment } from "./Equipment";
+import { RequestLoan } from "./RequestLoan";
+import { Stack } from "../structures/Stack";
+import { Queue } from "../structures/Queue";
+import { LinkedList } from "../structures/LinkedList";
+
+export class SystemBorrows {
+  private inventory: LinkedList<Equipment>;
+
+  // cars 
+  private carPortatil: Stack<Equipment>;
+  private carKit: Stack<Equipment>;
+  private carMultimetro: Stack<Equipment>;
+
+  // queueu for type of Equipment
+  private queuePortatil: Queue<RequestLoan>;
+  private queueKit: Queue<RequestLoan>;
+  private queueMultimetro: Queue<RequestLoan>;
+
+  // queue for state
+  private queueRevision: Queue<Equipment>;
+  private queuePendingStorage: Queue<Equipment>;
+
+  private readonly maxCapacityK: number;
+  private readonly maxHoursH: number;
+
+  private totalMovesDirectedLoan: number = 0;
+  private countDirectedLoans: number = 0;
+  private countImmediateLoans: number = 0;
+  private countQueuedLoans: number = 0;
+  private totalWaitTime: number = 0;
+
+  constructor(maxCapacityK: number = 5, maxHoursH: number = 24) {
+    this.maxCapacityK = maxCapacityK;
+    this.maxHoursH = maxHoursH;
+
+    this.inventory = new LinkedList<Equipment>();
+
+    this.carPortatil = new Stack<Equipment>();
+    this.carKit = new Stack<Equipment>();
+    this.carMultimetro = new Stack<Equipment>();
+
+    this.queuePortatil = new Queue<RequestLoan>();
+    this.queueKit = new Queue<RequestLoan>();
+    this.queueMultimetro = new Queue<RequestLoan>();
+
+    this.queueRevision = new Queue<Equipment>();
+    this.queuePendingStorage = new Queue<Equipment>();
+  }
+
+  private getCar(type: TypeEquipment): Stack<Equipment> {
+    switch (type) {
+      case TypeEquipment.PORTATIL: return this.carPortatil;
+      case TypeEquipment.KIT: return this.carKit;
+      case TypeEquipment.MULTIMETRO: return this.carMultimetro;
+    }
+  }
+
+  private getWaitQueue(type: TypeEquipment): Queue<RequestLoan> {
+    switch (type) {
+      case TypeEquipment.PORTATIL: return this.queuePortatil;
+      case TypeEquipment.KIT: return this.queueKit;
+      case TypeEquipment.MULTIMETRO: return this.queueMultimetro;
+    }
+  }
+
+
+  public cargarInventario(datos: Equipment[]): void {
+    for (const item of datos) {
+      this.inventory.add(item);
+      const car = this.getCar(item.tipo);
+      if (car.size() < this.maxCapacityK) {
+        item.estado = StatusEquipment.EN_CARRO;
+        car.push(item);
+      } else {
+        item.estado = StatusEquipment.EN_REVISION; // O espera por guardar según estado inicial
+        this.queuePendingStorage.enqueue(item);
+      }
+    }
+  }
+
+  public solicitar(estudiante: string, tipo: TypeEquipment, hora: number): string {
+    // Valida R1: Estudiante con equipo prestado de ese tipo o ya en cola
+    const studentHasType = this.inventory.toArray().some(
+      e => e.tipo === tipo && e.estudianteActual === estudiante && e.estado === StatusEquipment.PRESTADO
+    );
+    if (studentHasType) {
+      throw new Error("R1: El estudiante ya tiene un equipo de este tipo.");
+    }
+
+    const waitQueue = this.getWaitQueue(tipo);
+    const isAlreadyInQueue = waitQueue.toArray().some(req => req.estudiante === estudiante);
+    if (isAlreadyInQueue) {
+      throw new Error("R1: El estudiante ya está en la cola de espera de este tipo.");
+    }
+
+    // Valida R6: Estudiante en mora
+    const studentInMora = this.inventory.toArray().some(
+      e => e.estudianteActual === estudiante && e.estado === StatusEquipment.PRESTADO && (hora - e.horaPrestamo) > this.maxHoursH
+    );
+    if (studentInMora) {
+      throw new Error("R6: El estudiante está en mora y no puede solicitar equipos.");
+    }
+
+    const car = this.getCar(tipo);
+    if (!car.isEmpty()) {
+      this.countImmediateLoans++;
+      return this.prestar(tipo, estudiante, hora);
+    } else {
+      this.countQueuedLoans++;
+      waitQueue.enqueue({ estudiante, tipo, hora });
+      return `No hay equipos disponibles. Estudiante encolado en espera de ${tipo}.`;
+    }
+  }
+
+  public prestar(tipo: TypeEquipment, estudiante: string, hora: number): string {
+    const car = this.getCar(tipo);
+    if (car.isEmpty()) {
+      throw new Error("R2: El carro está vacío.");
+    }
+    const equipment = car.pop()!;
+    equipment.estado = StatusEquipment.PRESTADO;
+    equipment.estudianteActual = estudiante;
+    equipment.horaPrestamo = hora;
+    return `Equipo ${equipment.codigo} prestado a ${estudiante}.`;
+  }
+
+  public prestarDirigido(codigo: string, estudiante: string, hora: number): { equipo: Equipment; movimientos: number } {
+    const target = this.inventory.find(e => e.codigo === codigo);
+    if (!target) throw new Error("Equipo no encontrado.");
+    if (target.estado !== StatusEquipment.EN_CARRO) throw new Error("El equipo no está en el carro.");
+
+    const car = this.getCar(target.tipo);
+    const aux1 = new Stack<Equipment>();
+    const aux2 = new Stack<Equipment>();
+    let moves = 0;
+    let found: Equipment | null = null;
+
+    // Desapilar hacia Auxiliar 1 hasta encontrar el objetivo
+    while (!car.isEmpty()) {
+      const top = car.pop()!;
+      moves++;
+      if (top.codigo === codigo) {
+        found = top;
+        break;
+      }
+      aux1.push(top);
+      moves++;
+    }
+
+    if (!found) throw new Error("Equipo no estaba presente en la pila del carro.");
+
+    while (!aux1.isEmpty()) {
+      aux2.push(aux1.pop()!);
+      moves++;
+    }
+
+    while (!aux2.isEmpty()) {
+      car.push(aux2.pop()!);
+      moves++;
+    }
+
+    found.estado = StatusEquipment.PRESTADO;
+    found.estudianteActual = estudiante;
+    found.horaPrestamo = hora;
+
+    this.countDirectedLoans++;
+    this.totalMovesDirectedLoan += moves;
+
+    return { equipo: found, movimientos: moves };
+  }
+
+  /** RF-05: Devolución de un equipo (R5 y R6) */
+  public devolver(codigo: string, horaDevolucion: number): string {
+    const equipment = this.inventory.find(e => e.codigo === codigo);
+    if (!equipment || equipment.estado !== StatusEquipment.PRESTADO) {
+      throw new Error("El equipo no está registrado como prestado.");
+    }
+
+    const duration = horaDevolucion - equipment.horaPrestamo;
+    const enMora = duration > this.maxHoursH;
+
+    equipment.estado = StatusEquipment.EN_REVISION;
+    equipment.estudianteActual = undefined;
+    this.queueRevision.enqueue(equipment);
+
+    return `Equipo ${codigo} ingresado a revisión.` + (enMora ? " Nota: El préstamo estaba en MORA." : "");
+  }
+
+  /** RF-06: Revisar primer equipo de la cola de revisión (R5, R7 y R8) */
+  public revisar(resultadoDano: boolean): string {
+    if (this.queueRevision.isEmpty()) {
+      throw new Error("No hay equipos pendientes en la cola de revisión.");
+    }
+
+    const equipment = this.queueRevision.dequeue()!;
+    equipment.prestamos++;
+
+    if (equipment.prestamos >= 5 || resultadoDano) {
+      equipment.estado = StatusEquipment.MANTENIMIENTO;
+      return `Equipo ${equipment.codigo} enviado a MANTENIMIENTO ${resultadoDano ? "(Dañado)" : "(Preventivo por R8)"}.`;
+    }
+
+    // Regla R7: Ubicación en carro o cola de pendientes
+    const car = this.getCar(equipment.tipo);
+    if (car.size() < this.maxCapacityK) {
+      equipment.estado = StatusEquipment.EN_CARRO;
+      car.push(equipment);
+      this.atenderEspera(equipment.tipo);
+      return `Equipo ${equipment.codigo} devuelto al carro exitosamente.`;
+    } else {
+      equipment.estado = StatusEquipment.EN_CARRO; // Pendiente por guardar
+      this.queuePendingStorage.enqueue(equipment);
+      return `Carro lleno. Equipo ${equipment.codigo} puesto en cola de espera por guardar.`;
+    }
+  }
+
+  public atenderEspera(tipo: TypeEquipment): void {
+    const waitQueue = this.getWaitQueue(tipo);
+    const car = this.getCar(tipo);
+
+    if (!waitQueue.isEmpty() && !car.isEmpty()) {
+      const nextRequest = waitQueue.dequeue()!;
+      this.prestar(tipo, nextRequest.estudiante, nextRequest.hora);
+    }
+  }
+
+  public buscar(codigo: string): { equipo: Equipment; posicionCarro: number | null } {
+    const equipment = this.inventory.find(e => e.codigo === codigo);
+    if (!equipment) throw new Error("Equipo no encontrado.");
+
+    if (equipment.estado !== StatusEquipment.EN_CARRO) {
+      return { equipo: equipment, posicionCarro: null };
+    }
+
+    const car = this.getCar(equipment.tipo);
+    const tempArray = car.toArray(); // Visualiza de tope a fondo sin desapilar
+    const pos = tempArray.findIndex(e => e.codigo === codigo);
+
+    return {
+      equipo: equipment,
+      posicionCarro: pos !== -1 ? pos + 1 : null // Posición 1 basada en tope
+    };
+  }
+
+  /** RF-09 / Numeral 7: Obtener métricas */
+  public reporte() {
+    const all = this.inventory.toArray();
+    return {
+      equiposPorEstado: {
+        enCarro: all.filter(e => e.estado === StatusEquipment.EN_CARRO).length,
+        prestados: all.filter(e => e.estado === StatusEquipment.PRESTADO).length,
+        enRevision: all.filter(e => e.estado === StatusEquipment.EN_REVISION).length,
+        mantenimiento: all.filter(e => e.estado === StatusEquipment.MANTENIMIENTO).length,
+      },
+      ocupacionCarros: {
+        portatil: `${this.carPortatil.size()}/${this.maxCapacityK}`,
+        kit: `${this.carKit.size()}/${this.maxCapacityK}`,
+        multimetro: `${this.carMultimetro.size()}/${this.maxCapacityK}`,
+      },
+      solicitudes: {
+        inmediatas: this.countImmediateLoans,
+        enEspera: this.countQueuedLoans,
+      },
+      prestamosDirigidos: {
+        total: this.countDirectedLoans,
+        movimientosAcumulados: this.totalMovesDirectedLoan,
+      },
+      mantenimientoPreventivoR8: all.filter(e => e.prestamos >= 5).length
+    };
+  }
+}
