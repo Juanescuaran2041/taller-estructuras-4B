@@ -96,7 +96,7 @@ export class SystemBorrows {
 
     // Valida R6: Estudiante en mora
     const studentInMora = this.inventory.toArray().some(
-      e => e.estudianteActual === estudiante && e.estado === StatusEquipment.PRESTADO && (hora - e.horaPrestamo) > this.maxHoursH
+      e => e.currentStudent === estudiante && e.state === StatusEquipment.PRESTADO && (hora - e.horaPrestamo) > this.maxHoursH
     );
     if (studentInMora) {
       throw new Error("R6: El estudiante está en mora y no puede solicitar equipos.");
@@ -105,7 +105,7 @@ export class SystemBorrows {
     const car = this.getCar(tipo);
     if (!car.isEmpty()) {
       this.countImmediateLoans++;
-      return this.prestar(tipo, estudiante, hora);
+      return this.borrow(tipo, estudiante, hora);
     } else {
       this.countQueuedLoans++;
       waitQueue.enqueue({ estudiante, tipo, hora });
@@ -120,7 +120,7 @@ export class SystemBorrows {
     }
     const equipment = car.pop()!;
     equipment.state = StatusEquipment.PRESTADO;
-    equipment.estudianteActual = estudiante;
+    equipment.currenStudent = estudiante;
     equipment.horaPrestamo = hora;
     return `Equipo ${equipment.codigo} prestado a ${estudiante}.`;
   }

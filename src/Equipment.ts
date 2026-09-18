@@ -18,12 +18,13 @@ export class Equipment {
 	type: TypeEquipment
 	state: EquipmentState
 	borrows: number
-	currentStudent: 
+	currentStudent: User
 
-	constructor (tpye:TypeEquipment, state:EquipmentState, borrows:number){
+	constructor (tpye:TypeEquipment, state:EquipmentState, borrows:number, currentStudent:User){
 		this.type = type;
 		this.state = state;
 		this.borrows = borrows;
+		this.currentStudent = currentStudent;
 	}
 }
 
