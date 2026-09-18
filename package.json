@@ -4,13 +4,16 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:web": "esbuild web/src/main.ts --bundle --outfile=web/dist/bundle.js --format=esm",
+    "start:web": "node web/server.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "esbuild": "^0.28.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"
   }
