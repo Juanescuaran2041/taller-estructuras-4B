@@ -1,3 +1,4 @@
+import {User, TypeUser} from "./user" 
 
 export enum TypeEquipment {
 	PORTATIL = "PORTATIL",
@@ -17,6 +18,7 @@ export class Equipment {
 	type: TypeEquipment
 	state: EquipmentState
 	borrows: number
+	currentStudent: 
 
 	constructor (tpye:TypeEquipment, state:EquipmentState, borrows:number){
 		this.type = type;

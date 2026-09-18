@@ -70,7 +70,7 @@ export class SystemBorrows {
       this.inventory.add(item);
       const car = this.getCar(item.type);
       if (car.size() < this.maxCapacityK) {
-        item.state = StatusEquipment.EN_CARRO;
+        item.estado = StatusEquipment.EN_CARRO;
         car.push(item);
       } else {
         item.estado = StatusEquipment.EN_REVISION; 
@@ -82,7 +82,7 @@ export class SystemBorrows {
   public request(estudiante: string, tipo: TypeEquipment, hora: number): string {
     // validate req 1
     const studentHasType = this.inventory.toArray().some(
-      e => e.type === tipo && e.estudianteActual === estudiante && e.state === StatusEquipment.PRESTADO
+      e => e.tipo === tipo && e.estudianteActual === estudiante && e.estado === StatusEquipment.PRESTADO
     );
     if (studentHasType) {
       throw new Error("R1: El estudiante ya tiene un equipo de este tipo.");
