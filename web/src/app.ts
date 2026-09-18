@@ -12,6 +12,11 @@ interface LogEntry {
   isError: boolean;
 }
 
+interface SearchResult {
+  equipment: EquipmentSnapshot;
+  cartPosition: number | null;
+}
+
 interface AppState {
   sys: SystemBorrows;
   currentTab: TabName;
@@ -19,6 +24,10 @@ interface AppState {
   log: LogEntry[];
   lastError: string | null;
   animating: boolean;
+  filterType: TypeEquipment | "ALL";
+  filterStatus: StatusEquipment | "ALL";
+  searchResult: SearchResult | null;
+  searchError: string | null;
 }
 
 const state: AppState = {
@@ -28,6 +37,10 @@ const state: AppState = {
   log: [],
   lastError: null,
   animating: false,
+  filterType: "ALL",
+  filterStatus: "ALL",
+  searchResult: null,
+  searchError: null,
 };
 
 const TAB_LABELS: Record<TabName, string> = {
@@ -304,8 +317,38 @@ function renderOperationsScreen(): string {
   `;
 }
 
+function statusOptions(selectedValue?: string): string {
+  return Object.values(StatusEquipment)
+    .map(s => `<option value="${s}" ${s === selectedValue ? "selected" : ""}>${s}</option>`)
+    .join("");
+}
+
+function renderSearchResult(): string {
+  if (state.searchError) {
+    return `<p class="search-result error">${escapeHtml(state.searchError)}</p>`;
+  }
+  if (!state.searchResult) {
+    return "";
+  }
+  const { equipment, cartPosition } = state.searchResult;
+  const positionText = cartPosition !== null
+    ? `Position in cart (from the top): ${cartPosition}`
+    : "Not currently in a cart.";
+  return `
+    <p class="search-result">
+      <strong>${escapeHtml(equipment.code)}</strong> — ${TYPE_LABELS[equipment.type]} —
+      <span class="badge ${equipment.status}">${equipment.status}</span> — ${positionText}
+    </p>
+  `;
+}
+
 function renderInventoryScreen(): string {
-  const items = state.sys.getInventoryView();
+  const items = state.sys.getInventoryView().filter(eq => {
+    const typeOk = state.filterType === "ALL" || eq.type === state.filterType;
+    const statusOk = state.filterStatus === "ALL" || eq.status === state.filterStatus;
+    return typeOk && statusOk;
+  });
+
   const rows = items
     .map(eq => `
       <tr>
@@ -325,6 +368,20 @@ function renderInventoryScreen(): string {
     <h2 class="section-title">Inventory (linked list)</h2>
 
     <div class="panel">
+      <h2>Search equipment (RF-08)</h2>
+      <form data-action="submit-search">
+        <div class="form-row">
+          <label>Code</label>
+          <input name="code" required>
+        </div>
+        <div class="form-row">
+          <button type="submit">Search</button>
+        </div>
+      </form>
+      ${renderSearchResult()}
+    </div>
+
+    <div class="panel">
       <h2>Register new equipment</h2>
       <form data-action="submit-add-equipment">
         <div class="form-row">
@@ -337,6 +394,23 @@ function renderInventoryScreen(): string {
         </div>
         <div class="form-row">
           <button type="submit">Add</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="panel">
+      <h2>Filter inventory</h2>
+      <form data-action="submit-filter">
+        <div class="form-row">
+          <label>Type</label>
+          <select name="type"><option value="ALL" ${state.filterType === "ALL" ? "selected" : ""}>All</option>${typeOptions(state.filterType === "ALL" ? undefined : state.filterType)}</select>
+        </div>
+        <div class="form-row">
+          <label>Status</label>
+          <select name="status"><option value="ALL" ${state.filterStatus === "ALL" ? "selected" : ""}>All</option>${statusOptions(state.filterStatus === "ALL" ? undefined : state.filterStatus)}</select>
+        </div>
+        <div class="form-row">
+          <button type="submit" class="secondary">Apply filter</button>
         </div>
       </form>
     </div>
@@ -538,6 +612,28 @@ function wireEvents(): void {
           ? `No student waiting for ${TYPE_LABELS[type]}, or the cart is empty.`
           : `Wait queue for ${TYPE_LABELS[type]} attended.`;
       });
+      return;
+    }
+
+    if (action === "submit-search") {
+      const code = getFormValue(form, "code");
+      try {
+        state.searchResult = state.sys.find(code);
+        state.searchError = null;
+      } catch (err) {
+        state.searchResult = null;
+        state.searchError = err instanceof Error ? err.message : String(err);
+      }
+      render();
+      return;
+    }
+
+    if (action === "submit-filter") {
+      const type = getFormValue(form, "type");
+      const status = getFormValue(form, "status");
+      state.filterType = type === "ALL" ? "ALL" : (type as TypeEquipment);
+      state.filterStatus = status === "ALL" ? "ALL" : (status as StatusEquipment);
+      render();
       return;
     }
 

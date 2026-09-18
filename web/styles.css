@@ -337,6 +337,19 @@ table.inventory-table th {
   color: #55606e;
 }
 
+.search-result {
+  margin: 8px 0 0 0;
+  padding: 6px 8px;
+  background: #e3f2fd;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.search-result.error {
+  background: #ffebee;
+  color: #b71c1c;
+}
+
 .section-title {
   font-size: 15px;
   margin: 0 0 10px 0;
