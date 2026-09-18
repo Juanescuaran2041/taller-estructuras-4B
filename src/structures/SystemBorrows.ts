@@ -1,25 +1,25 @@
-import { Equipment, TypeEquipment, StatusEquipment } from "./Equipment";
-import { RequestLoan } from "./RequestLoan";
-import { Stack } from "../structures/Stack";
-import { Queue } from "../structures/Queue";
-import { LinkedList } from "../structures/LinkedList";
+import { Equipment, TypeEquipment, StatusEquipment } from "../Equipment.js";
+import type { RequestLoan } from "./RequestLoan.js";
+import { Stack } from "./stack.js";
+import { Queue } from "./queue.js";
+import { LinkedList } from "../Inventory.js";
 
 export class SystemBorrows {
   private inventory: LinkedList<Equipment>;
 
-  // cars 
-  private carPortatil: Stack<Equipment>;
-  private carKit: Stack<Equipment>;
-  private carMultimetro: Stack<Equipment>;
+  private cartLaptop: Stack<Equipment>;
+  private cartKit: Stack<Equipment>;
+  private cartMultimeter: Stack<Equipment>;
 
-  // queueu for type of Equipment
-  private queuePortatil: Queue<RequestLoan>;
-  private queueKit: Queue<RequestLoan>;
-  private queueMultimetro: Queue<RequestLoan>;
+  private waitQueueLaptop: Queue<RequestLoan>;
+  private waitQueueKit: Queue<RequestLoan>;
+  private waitQueueMultimeter: Queue<RequestLoan>;
 
-  // queue for state
-  private queueRevision: Queue<Equipment>;
-  private queuePendingStorage: Queue<Equipment>;
+  private reviewQueue: Queue<Equipment>;
+
+  private pendingStorageQueueLaptop: Queue<Equipment>;
+  private pendingStorageQueueKit: Queue<Equipment>;
+  private pendingStorageQueueMultimeter: Queue<Equipment>;
 
   private readonly maxCapacityK: number;
   private readonly maxHoursH: number;
@@ -28,7 +28,6 @@ export class SystemBorrows {
   private countDirectedLoans: number = 0;
   private countImmediateLoans: number = 0;
   private countQueuedLoans: number = 0;
-  private totalWaitTime: number = 0;
 
   constructor(maxCapacityK: number = 5, maxHoursH: number = 24) {
     this.maxCapacityK = maxCapacityK;
@@ -36,236 +35,273 @@ export class SystemBorrows {
 
     this.inventory = new LinkedList<Equipment>();
 
-    this.carPortatil = new Stack<Equipment>();
-    this.carKit = new Stack<Equipment>();
-    this.carMultimetro = new Stack<Equipment>();
+    this.cartLaptop = new Stack<Equipment>();
+    this.cartKit = new Stack<Equipment>();
+    this.cartMultimeter = new Stack<Equipment>();
 
-    this.queuePortatil = new Queue<RequestLoan>();
-    this.queueKit = new Queue<RequestLoan>();
-    this.queueMultimetro = new Queue<RequestLoan>();
+    this.waitQueueLaptop = new Queue<RequestLoan>();
+    this.waitQueueKit = new Queue<RequestLoan>();
+    this.waitQueueMultimeter = new Queue<RequestLoan>();
 
-    this.queueRevision = new Queue<Equipment>();
-    this.queuePendingStorage = new Queue<Equipment>();
+    this.reviewQueue = new Queue<Equipment>();
+
+    this.pendingStorageQueueLaptop = new Queue<Equipment>();
+    this.pendingStorageQueueKit = new Queue<Equipment>();
+    this.pendingStorageQueueMultimeter = new Queue<Equipment>();
   }
 
-  private getCar(type: TypeEquipment): Stack<Equipment> {
+  private getCart(type: TypeEquipment): Stack<Equipment> {
     switch (type) {
-      case TypeEquipment.PORTATIL: return this.carPortatil;
-      case TypeEquipment.KIT: return this.carKit;
-      case TypeEquipment.MULTIMETRO: return this.carMultimetro;
+      case TypeEquipment.LAPTOP: return this.cartLaptop;
+      case TypeEquipment.KIT: return this.cartKit;
+      case TypeEquipment.MULTIMETER: return this.cartMultimeter;
     }
   }
 
   private getWaitQueue(type: TypeEquipment): Queue<RequestLoan> {
     switch (type) {
-      case TypeEquipment.PORTATIL: return this.queuePortatil;
-      case TypeEquipment.KIT: return this.queueKit;
-      case TypeEquipment.MULTIMETRO: return this.queueMultimetro;
+      case TypeEquipment.LAPTOP: return this.waitQueueLaptop;
+      case TypeEquipment.KIT: return this.waitQueueKit;
+      case TypeEquipment.MULTIMETER: return this.waitQueueMultimeter;
     }
   }
 
+  private getPendingQueue(type: TypeEquipment): Queue<Equipment> {
+    switch (type) {
+      case TypeEquipment.LAPTOP: return this.pendingStorageQueueLaptop;
+      case TypeEquipment.KIT: return this.pendingStorageQueueKit;
+      case TypeEquipment.MULTIMETER: return this.pendingStorageQueueMultimeter;
+    }
+  }
 
-  public loadInventory(datos: Equipment[]): void {
-    for (const item of datos) {
+  public loadInventory(data: Equipment[]): void {
+    for (const item of data) {
       this.inventory.add(item);
-      const car = this.getCar(item.type);
-      if (car.size() < this.maxCapacityK) {
-        item.estado = StatusEquipment.EN_CARRO;
-        car.push(item);
+      const cart = this.getCart(item.type);
+      if (cart.size() < this.maxCapacityK) {
+        item.status = StatusEquipment.IN_CART;
+        cart.push(item);
       } else {
-        item.estado = StatusEquipment.EN_REVISION; 
-        this.queuePendingStorage.enqueue(item);
+        item.status = StatusEquipment.IN_CART;
+        this.getPendingQueue(item.type).enqueue(item);
       }
     }
   }
 
-  public request(estudiante: string, tipo: TypeEquipment, hora: number): string {
-    // validate req 1
+  public request(student: string, type: TypeEquipment, time: number): string {
     const studentHasType = this.inventory.toArray().some(
-      e => e.tipo === tipo && e.estudianteActual === estudiante && e.estado === StatusEquipment.PRESTADO
+      e => e.type === type && e.currentStudent === student && e.status === StatusEquipment.BORROWED
     );
     if (studentHasType) {
-      throw new Error("R1: El estudiante ya tiene un equipo de este tipo.");
+      throw new Error("R1: Student already has an equipment of this type.");
     }
 
-    const waitQueue = this.getWaitQueue(tipo);
-    const isAlreadyInQueue = waitQueue.toArray().some(req => req.estudiante === estudiante);
-    if (isAlreadyInQueue) {
-      throw new Error("R1: El estudiante ya está en la cola de espera de este tipo.");
+    const waitQueue = this.getWaitQueue(type);
+    const alreadyQueued = waitQueue.toArray().some(req => req.student === student);
+    if (alreadyQueued) {
+      throw new Error("R1: Student is already in the wait queue for this type.");
     }
 
-    // Valida R6: Estudiante en mora
-    const studentInMora = this.inventory.toArray().some(
-      e => e.estudianteActual === estudiante && e.estado === StatusEquipment.PRESTADO && (hora - e.horaPrestamo) > this.maxHoursH
+    const maxMinutes = this.maxHoursH * 60;
+    const studentInDefault = this.inventory.toArray().some(
+      e => e.currentStudent === student &&
+           e.status === StatusEquipment.BORROWED &&
+           (time - (e.loanTime ?? time)) > maxMinutes
     );
-    if (studentInMora) {
-      throw new Error("R6: El estudiante está en mora y no puede solicitar equipos.");
+    if (studentInDefault) {
+      throw new Error("R6: Student is in default and cannot request equipment.");
     }
 
-    const car = this.getCar(tipo);
-    if (!car.isEmpty()) {
+    const cart = this.getCart(type);
+    if (!cart.isEmpty()) {
       this.countImmediateLoans++;
-      return this.prestar(tipo, estudiante, hora);
+      return this.lend(type, student, time);
     } else {
       this.countQueuedLoans++;
-      waitQueue.enqueue({ estudiante, tipo, hora });
-      return `No hay equipos disponibles. Estudiante encolado en espera de ${tipo}.`;
+      waitQueue.enqueue({ student, type, time });
+      return `No equipment available. Student queued for ${type}.`;
     }
   }
 
-  public borrow(tipo: TypeEquipment, estudiante: string, hora: number): string {
-    const car = this.getCar(tipo);
-    if (car.isEmpty()) {
-      throw new Error("R2: El carro está vacío.");
+  public lend(type: TypeEquipment, student: string, time: number): string {
+    const cart = this.getCart(type);
+    if (cart.isEmpty()) {
+      throw new Error("R2: Cart is empty.");
     }
-    const equipment = car.pop()!;
-    equipment.state = StatusEquipment.PRESTADO;
-    equipment.estudianteActual = estudiante;
-    equipment.horaPrestamo = hora;
-    return `Equipo ${equipment.codigo} prestado a ${estudiante}.`;
+    const equipment = cart.pop()!;
+    equipment.status = StatusEquipment.BORROWED;
+    equipment.currentStudent = student;
+    equipment.loanTime = time;
+
+    this.restockFromPendingQueue(type);
+
+    return `Equipment ${equipment.code} lent to ${student}.`;
   }
 
-  public prestarDirigido(codigo: string, estudiante: string, hora: number): { equipo: Equipment; movimientos: number } {
-    const target = this.inventory.find(e => e.codigo === codigo);
-    if (!target) throw new Error("Equipo no encontrado.");
-    if (target.estado !== StatusEquipment.EN_CARRO) throw new Error("El equipo no está en el carro.");
+  public directedLoan(code: string, student: string, time: number): { equipment: Equipment; moves: number } {
+    const target = this.inventory.find(e => e.code === code);
+    if (!target) throw new Error("Equipment not found.");
+    if (target.status !== StatusEquipment.IN_CART) throw new Error("Equipment is not in the cart.");
 
-    const car = this.getCar(target.tipo);
-    const aux1 = new Stack<Equipment>();
-    const aux2 = new Stack<Equipment>();
+    const cart = this.getCart(target.type);
+    const aux = new Stack<Equipment>();
     let moves = 0;
     let found: Equipment | null = null;
 
-    while (!car.isEmpty()) {
-      const top = car.pop()!;
-      moves++;
-      if (top.codigo === codigo) {
+    while (!cart.isEmpty()) {
+      const top = cart.pop()!;
+      if (top.code === code) {
         found = top;
+        moves++;
         break;
       }
-      aux1.push(top);
+      aux.push(top);
       moves++;
     }
 
-    if (!found) throw new Error("Equipo no estaba presente en la pila del carro.");
+    if (!found) {
+      while (!aux.isEmpty()) {
+        cart.push(aux.pop()!);
+      }
+      throw new Error("Equipment was not present in the cart stack.");
+    }
 
-    while (!aux1.isEmpty()) {
-      aux2.push(aux1.pop()!);
+    while (!aux.isEmpty()) {
+      cart.push(aux.pop()!);
       moves++;
     }
 
-    while (!aux2.isEmpty()) {
-      car.push(aux2.pop()!);
-      moves++;
-    }
-
-    found.estado = StatusEquipment.PRESTADO;
-    found.estudianteActual = estudiante;
-    found.horaPrestamo = hora;
+    found.status = StatusEquipment.BORROWED;
+    found.currentStudent = student;
+    found.loanTime = time;
 
     this.countDirectedLoans++;
     this.totalMovesDirectedLoan += moves;
 
-    return { equipo: found, movimientos: moves };
+    this.restockFromPendingQueue(target.type);
+
+    return { equipment: found, moves };
   }
 
-  /** RF-05: Devolución de un equipo (R5 y R6) */
-  public devolver(codigo: string, horaDevolucion: number): string {
-    const equipment = this.inventory.find(e => e.codigo === codigo);
-    if (!equipment || equipment.estado !== StatusEquipment.PRESTADO) {
-      throw new Error("El equipo no está registrado como prestado.");
+  private restockFromPendingQueue(type: TypeEquipment): void {
+    const cart = this.getCart(type);
+    const pending = this.getPendingQueue(type);
+    if (!pending.isEmpty() && cart.size() < this.maxCapacityK) {
+      const equipment = pending.dequeue()!;
+      equipment.status = StatusEquipment.IN_CART;
+      cart.push(equipment);
+      this.attendWaitlist(type);
     }
-
-    const duration = horaDevolucion - equipment.horaPrestamo;
-    const enMora = duration > this.maxHoursH;
-
-    equipment.estado = StatusEquipment.EN_REVISION;
-    equipment.estudianteActual = undefined;
-    this.queueRevision.enqueue(equipment);
-
-    return `Equipo ${codigo} ingresado a revisión.` + (enMora ? " Nota: El préstamo estaba en MORA." : "");
   }
 
-  /** RF-06: Revisar primer equipo de la cola de revisión (R5, R7 y R8) */
-  public revisar(resultadoDano: boolean): string {
-    if (this.queueRevision.isEmpty()) {
-      throw new Error("No hay equipos pendientes en la cola de revisión.");
+  public returnEquipment(code: string, returnTime: number): string {
+    const equipment = this.inventory.find(e => e.code === code);
+    if (!equipment || equipment.status !== StatusEquipment.BORROWED) {
+      throw new Error("Equipment is not registered as borrowed.");
     }
 
-    const equipment = this.queueRevision.dequeue()!;
-    equipment.prestamos++;
+    const duration = returnTime - (equipment.loanTime ?? returnTime);
+    const overdue = duration > this.maxHoursH * 60;
 
-    if (equipment.prestamos >= 5 || resultadoDano) {
-      equipment.estado = StatusEquipment.MANTENIMIENTO;
-      return `Equipo ${equipment.codigo} enviado a MANTENIMIENTO ${resultadoDano ? "(Dañado)" : "(Preventivo por R8)"}.`;
+    equipment.status = StatusEquipment.IN_REVIEW;
+    equipment.currentStudent = undefined;
+    this.reviewQueue.enqueue(equipment);
+
+    return `Equipment ${code} sent for review.` + (overdue ? " Note: the loan was overdue." : "");
+  }
+
+  public review(damaged: boolean): string {
+    if (this.reviewQueue.isEmpty()) {
+      throw new Error("No equipment pending in the review queue.");
     }
 
-    // Regla R7: Ubicación en carro o cola de pendientes
-    const car = this.getCar(equipment.tipo);
-    if (car.size() < this.maxCapacityK) {
-      equipment.estado = StatusEquipment.EN_CARRO;
-      car.push(equipment);
-      this.atenderEspera(equipment.tipo);
-      return `Equipo ${equipment.codigo} devuelto al carro exitosamente.`;
+    const equipment = this.reviewQueue.dequeue()!;
+    equipment.borrowCount++;
+
+    if (damaged) {
+      equipment.status = StatusEquipment.MAINTENANCE;
+      return `Equipment ${equipment.code} sent to MAINTENANCE (Damaged).`;
+    }
+
+    if (equipment.borrowCount >= 5) {
+      equipment.status = StatusEquipment.MAINTENANCE;
+      return `Equipment ${equipment.code} sent to MAINTENANCE (Preventive, rule R8).`;
+    }
+
+    const cart = this.getCart(equipment.type);
+    if (cart.size() < this.maxCapacityK) {
+      equipment.status = StatusEquipment.IN_CART;
+      cart.push(equipment);
+      this.attendWaitlist(equipment.type);
+      return `Equipment ${equipment.code} returned to the cart successfully.`;
     } else {
-      equipment.estado = StatusEquipment.EN_CARRO; // Pendiente por guardar
-      this.queuePendingStorage.enqueue(equipment);
-      return `Carro lleno. Equipo ${equipment.codigo} puesto en cola de espera por guardar.`;
+      equipment.status = StatusEquipment.IN_CART;
+      this.getPendingQueue(equipment.type).enqueue(equipment);
+      return `Cart full. Equipment ${equipment.code} placed in the pending storage queue.`;
     }
   }
 
-  public atenderEspera(tipo: TypeEquipment): void {
-    const waitQueue = this.getWaitQueue(tipo);
-    const car = this.getCar(tipo);
+  public attendWaitlist(type: TypeEquipment): void {
+    const waitQueue = this.getWaitQueue(type);
+    const cart = this.getCart(type);
 
-    if (!waitQueue.isEmpty() && !car.isEmpty()) {
+    if (!waitQueue.isEmpty() && !cart.isEmpty()) {
       const nextRequest = waitQueue.dequeue()!;
-      this.prestar(tipo, nextRequest.estudiante, nextRequest.hora);
+      this.lend(type, nextRequest.student, nextRequest.time);
     }
   }
 
-  public buscar(codigo: string): { equipo: Equipment; posicionCarro: number | null } {
-    const equipment = this.inventory.find(e => e.codigo === codigo);
-    if (!equipment) throw new Error("Equipo no encontrado.");
+  public find(code: string): { equipment: Equipment; cartPosition: number | null } {
+    const equipment = this.inventory.find(e => e.code === code);
+    if (!equipment) throw new Error("Equipment not found.");
 
-    if (equipment.estado !== StatusEquipment.EN_CARRO) {
-      return { equipo: equipment, posicionCarro: null };
+    if (equipment.status !== StatusEquipment.IN_CART) {
+      return { equipment, cartPosition: null };
     }
 
-    const car = this.getCar(equipment.tipo);
-    const tempArray = car.toArray(); // Visualiza de tope a fondo sin desapilar
-    const pos = tempArray.findIndex(e => e.codigo === codigo);
+    const cart = this.getCart(equipment.type);
+    const tempArray = cart.toArray();
+    const pos = tempArray.findIndex(e => e.code === code);
 
     return {
-      equipo: equipment,
-      posicionCarro: pos !== -1 ? pos + 1 : null // Posición 1 basada en tope
+      equipment,
+      cartPosition: pos !== -1 ? pos + 1 : null
     };
   }
 
-  /** RF-09 / Numeral 7: Obtener métricas */
-  public reporte() {
+  public report() {
     const all = this.inventory.toArray();
     return {
-      equiposPorEstado: {
-        enCarro: all.filter(e => e.estado === StatusEquipment.EN_CARRO).length,
-        prestados: all.filter(e => e.estado === StatusEquipment.PRESTADO).length,
-        enRevision: all.filter(e => e.estado === StatusEquipment.EN_REVISION).length,
-        mantenimiento: all.filter(e => e.estado === StatusEquipment.MANTENIMIENTO).length,
+      equipmentByStatus: {
+        inCart: all.filter(e => e.status === StatusEquipment.IN_CART).length,
+        borrowed: all.filter(e => e.status === StatusEquipment.BORROWED).length,
+        inReview: all.filter(e => e.status === StatusEquipment.IN_REVIEW).length,
+        maintenance: all.filter(e => e.status === StatusEquipment.MAINTENANCE).length,
       },
-      ocupacionCarros: {
-        portatil: `${this.carPortatil.size()}/${this.maxCapacityK}`,
-        kit: `${this.carKit.size()}/${this.maxCapacityK}`,
-        multimetro: `${this.carMultimetro.size()}/${this.maxCapacityK}`,
+      cartOccupancy: {
+        laptop: `${this.cartLaptop.size()}/${this.maxCapacityK}`,
+        kit: `${this.cartKit.size()}/${this.maxCapacityK}`,
+        multimeter: `${this.cartMultimeter.size()}/${this.maxCapacityK}`,
       },
-      solicitudes: {
-        inmediatas: this.countImmediateLoans,
-        enEspera: this.countQueuedLoans,
+      waitQueues: {
+        laptop: this.waitQueueLaptop.size(),
+        kit: this.waitQueueKit.size(),
+        multimeter: this.waitQueueMultimeter.size(),
       },
-      prestamosDirigidos: {
+      pendingStorage: {
+        laptop: this.pendingStorageQueueLaptop.size(),
+        kit: this.pendingStorageQueueKit.size(),
+        multimeter: this.pendingStorageQueueMultimeter.size(),
+      },
+      requests: {
+        immediate: this.countImmediateLoans,
+        queued: this.countQueuedLoans,
+      },
+      directedLoans: {
         total: this.countDirectedLoans,
-        movimientosAcumulados: this.totalMovesDirectedLoan,
+        totalMoves: this.totalMovesDirectedLoan,
       },
-      mantenimientoPreventivoR8: all.filter(e => e.prestamos >= 5).length
+      preventiveMaintenanceR8: all.filter(e => e.borrowCount >= 5).length
     };
   }
 }

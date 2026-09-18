@@ -54,4 +54,15 @@ export class Queue<T> {
   public size(): number {
     return this.count;
   }
+
+
+  public toArray(): T[] {
+    const elements: T[] = [];
+    let current = this.frontNode;
+    while (current !== null) {
+      elements.push(current.value);
+      current = current.next;
+    }
+    return elements;
+  }
 }

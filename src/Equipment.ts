@@ -1,30 +1,29 @@
-import {User, TypeUser} from "./user" 
-
 export enum TypeEquipment {
-	PORTATIL = "PORTATIL",
+	LAPTOP = "LAPTOP",
 	KIT = "KIT",
-	MULTIMETRO = MULTIMETRO
-
+	MULTIMETER = "MULTIMETER"
 }
 
-export enum EquipmentState{
-	EN_CARRO = "EN_CARRO",
-	EN_REVISION = "EN_REVISION",
-	MANTENIMIENTO = "MANTENIMIENTO"
+export enum StatusEquipment {
+	IN_CART = "IN_CART",
+	BORROWED = "BORROWED",
+	IN_REVIEW = "IN_REVIEW",
+	MAINTENANCE = "MAINTENANCE"
 }
 
 export class Equipment {
-	id: string
-	type: TypeEquipment
-	state: EquipmentState
-	borrows: number
-	currentStudent: User
+	code: string;
+	type: TypeEquipment;
+	status: StatusEquipment;
+	borrowCount: number;
 
-	constructor (tpye:TypeEquipment, state:EquipmentState, borrows:number, currentStudent:User){
+	currentStudent?: string | undefined;
+	loanTime?: number | undefined;
+
+	constructor(code: string, type: TypeEquipment, status: StatusEquipment = StatusEquipment.IN_CART, borrowCount: number = 0) {
+		this.code = code;
 		this.type = type;
-		this.state = state;
-		this.borrows = borrows;
-		this.currentStudent = currentStudent;
+		this.status = status;
+		this.borrowCount = borrowCount;
 	}
 }
-
