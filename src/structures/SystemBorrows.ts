@@ -4,6 +4,20 @@ import { Stack } from "./stack.js";
 import { Queue } from "./queue.js";
 import { LinkedList } from "../Inventory.js";
 
+export interface EquipmentSnapshot {
+  code: string;
+  type: TypeEquipment;
+  status: StatusEquipment;
+  borrowCount: number;
+  currentStudent?: string | undefined;
+  loanTime?: number | undefined;
+}
+
+export interface DirectedLoanStep {
+  action: "out" | "found" | "in";
+  code: string;
+}
+
 export class SystemBorrows {
   private inventory: LinkedList<Equipment>;
 
@@ -48,6 +62,10 @@ export class SystemBorrows {
     this.pendingStorageQueueLaptop = new Queue<Equipment>();
     this.pendingStorageQueueKit = new Queue<Equipment>();
     this.pendingStorageQueueMultimeter = new Queue<Equipment>();
+  }
+
+  public getCapacity(): number {
+    return this.maxCapacityK;
   }
 
   private getCart(type: TypeEquipment): Stack<Equipment> {
@@ -138,13 +156,14 @@ export class SystemBorrows {
     return `Equipment ${equipment.code} lent to ${student}.`;
   }
 
-  public directedLoan(code: string, student: string, time: number): { equipment: Equipment; moves: number } {
+  public directedLoan(code: string, student: string, time: number): { equipment: EquipmentSnapshot; moves: number; steps: DirectedLoanStep[] } {
     const target = this.inventory.find(e => e.code === code);
     if (!target) throw new Error("Equipment not found.");
     if (target.status !== StatusEquipment.IN_CART) throw new Error("Equipment is not in the cart.");
 
     const cart = this.getCart(target.type);
     const aux = new Stack<Equipment>();
+    const steps: DirectedLoanStep[] = [];
     let moves = 0;
     let found: Equipment | null = null;
 
@@ -153,10 +172,12 @@ export class SystemBorrows {
       if (top.code === code) {
         found = top;
         moves++;
+        steps.push({ action: "found", code: top.code });
         break;
       }
       aux.push(top);
       moves++;
+      steps.push({ action: "out", code: top.code });
     }
 
     if (!found) {
@@ -167,8 +188,10 @@ export class SystemBorrows {
     }
 
     while (!aux.isEmpty()) {
-      cart.push(aux.pop()!);
+      const item = aux.pop()!;
+      cart.push(item);
       moves++;
+      steps.push({ action: "in", code: item.code });
     }
 
     found.status = StatusEquipment.BORROWED;
@@ -180,7 +203,7 @@ export class SystemBorrows {
 
     this.restockFromPendingQueue(target.type);
 
-    return { equipment: found, moves };
+    return { equipment: this.toSnapshot(found), moves, steps };
   }
 
   private restockFromPendingQueue(type: TypeEquipment): void {
@@ -251,12 +274,117 @@ export class SystemBorrows {
     }
   }
 
-  public find(code: string): { equipment: Equipment; cartPosition: number | null } {
+  public addEquipment(code: string, type: TypeEquipment): EquipmentSnapshot {
+    if (this.inventory.find(e => e.code === code)) {
+      throw new Error("Equipment code already exists in the inventory.");
+    }
+
+    const equipment = new Equipment(code, type);
+    this.inventory.add(equipment);
+
+    const cart = this.getCart(type);
+    if (cart.size() < this.maxCapacityK) {
+      equipment.status = StatusEquipment.IN_CART;
+      cart.push(equipment);
+    } else {
+      this.getPendingQueue(type).enqueue(equipment);
+    }
+
+    return this.toSnapshot(equipment);
+  }
+
+  public removeEquipment(code: string): void {
+    const target = this.inventory.find(e => e.code === code);
+    if (!target) throw new Error("Equipment not found.");
+
+    if (target.status === StatusEquipment.IN_CART) {
+      const cart = this.getCart(target.type);
+      const aux = new Stack<Equipment>();
+      let found = false;
+
+      while (!cart.isEmpty()) {
+        const top = cart.pop()!;
+        if (top.code === code) {
+          found = true;
+          break;
+        }
+        aux.push(top);
+      }
+
+      while (!aux.isEmpty()) {
+        cart.push(aux.pop()!);
+      }
+
+      if (!found) {
+        found = this.removeFromPendingQueue(target.type, code);
+      }
+
+      if (!found) throw new Error("Equipment was not present in the cart or the pending storage queue.");
+    } else if (target.status !== StatusEquipment.MAINTENANCE) {
+      throw new Error("Only equipment in the cart or under maintenance can be decommissioned.");
+    }
+
+    this.inventory.remove(e => e.code === code);
+  }
+
+  private removeFromPendingQueue(type: TypeEquipment, code: string): boolean {
+    const pending = this.getPendingQueue(type);
+    const rest = new Queue<Equipment>();
+    let found = false;
+
+    while (!pending.isEmpty()) {
+      const item = pending.dequeue()!;
+      if (item.code === code) {
+        found = true;
+      } else {
+        rest.enqueue(item);
+      }
+    }
+
+    while (!rest.isEmpty()) {
+      pending.enqueue(rest.dequeue()!);
+    }
+
+    return found;
+  }
+
+  private toSnapshot(equipment: Equipment): EquipmentSnapshot {
+    return {
+      code: equipment.code,
+      type: equipment.type,
+      status: equipment.status,
+      borrowCount: equipment.borrowCount,
+      currentStudent: equipment.currentStudent,
+      loanTime: equipment.loanTime,
+    };
+  }
+
+  public getInventoryView(): EquipmentSnapshot[] {
+    return this.inventory.toArray().map(e => this.toSnapshot(e));
+  }
+
+  public getCartView(type: TypeEquipment): EquipmentSnapshot[] {
+    return this.getCart(type).toArray().map(e => this.toSnapshot(e));
+  }
+
+  public getWaitQueueView(type: TypeEquipment): RequestLoan[] {
+    return this.getWaitQueue(type).toArray().map(req => ({ ...req }));
+  }
+
+  public getReviewQueueView(): EquipmentSnapshot[] {
+    return this.reviewQueue.toArray().map(e => this.toSnapshot(e));
+  }
+
+  public getPendingStorageView(type: TypeEquipment): EquipmentSnapshot[] {
+    return this.getPendingQueue(type).toArray().map(e => this.toSnapshot(e));
+  }
+
+  public find(code: string): { equipment: EquipmentSnapshot; cartPosition: number | null } {
     const equipment = this.inventory.find(e => e.code === code);
     if (!equipment) throw new Error("Equipment not found.");
 
     if (equipment.status !== StatusEquipment.IN_CART) {
-      return { equipment, cartPosition: null };
+      return { equipment: this.toSnapshot(equipment), cartPosition: null };
     }
 
     const cart = this.getCart(equipment.type);
@@ -264,7 +392,7 @@ export class SystemBorrows {
     const pos = tempArray.findIndex(e => e.code === code);
 
     return {
-      equipment,
+      equipment: this.toSnapshot(equipment),
       cartPosition: pos !== -1 ? pos + 1 : null
     };
   }
